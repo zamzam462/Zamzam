@@ -2,7 +2,7 @@
 <html lang="ar" dir="rtl">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <title>زمزم لتكنولوجيا المياه والطاقة</title>
 <meta name="theme-color" content="#0c447c">
 <link rel="apple-touch-icon" href="assets/icon-192.png">
@@ -45,8 +45,14 @@ html, body {
 }
 
 #app-root {
+  padding-top: env(safe-area-inset-top, 0px);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+#app-root {
   width: 100%;
-  height: 100vh;
+  height: 100vh; /* fallback للمتصفحات القديمة */
+  height: 100dvh; /* الارتفاع الحقيقي المرئي على الموبايل، بيتجاهل شريط العنوان المتحرك */
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -283,7 +289,7 @@ input, select, textarea {
 
     /* هيكل التطبيق: قائمة جانبية + محتوى بعرض أكبر */
     #app-shell {
-      flex-direction: row; direction: ltr; max-width: 1200px; height: 88vh; margin: 6vh auto;
+      flex-direction: row; direction: ltr; max-width: 1200px; height: 88vh; height: 88dvh; margin: 6vh auto;
       border-radius: 18px; overflow: hidden; box-shadow: 0 10px 40px rgba(0,0,0,0.12);
     }
     #sidebar {
@@ -3503,6 +3509,171 @@ function adminDeleteCustomSectionConfirm(key) {
 
 /* ---------- تشغيل التسجيل فور تحميل هذا الملف ---------- */
 zzRegisterCustomSections();
+</script>
+<script>
+/* =========================================================
+   زمزم لتكنولوجيا المياه والطاقة
+   إضافة: حماية الدخول — كل دور محتاج تحقق حقيقي بدل ما يبقى
+   مجرد ضغطة زرار. الفنيين/المشغل/المشرف/الأدمن محتاجين كود دخول (PIN)،
+   والعملاء (منزلي / محطات) بيدخلوا برقم موبايلهم المعتمد من الأدمن.
+
+   ملاحظة: ده تأمين على مستوى المتصفح (localStorage) مناسب لمرحلة
+   التجربة الحالية. التأمين الكامل الحقيقي (كلمات سر مشفرة، جلسات
+   دخول) محتاج سيرفر فعلي، وده جزء من خطة الاستضافة النهائية.
+   ========================================================= */
+
+const ZZ_PIN_KEY = "zamzam_role_pins";
+const ZZ_STAFF_ROLES = ["home_technician", "operator", "supervisor", "admin"];
+const ZZ_CUSTOMER_ROLES = ["home_customer", "donor"];
+const ZZ_DEFAULT_PINS = { home_technician: "1111", operator: "2222", supervisor: "3333", admin: "9999" };
+
+function zzGetPins() {
+  try { return { ...ZZ_DEFAULT_PINS, ...(JSON.parse(localStorage.getItem(ZZ_PIN_KEY)) || {}) }; }
+  catch (e) { return { ...ZZ_DEFAULT_PINS }; }
+}
+function zzSetPins(pins) { zzSafeSetItem(ZZ_PIN_KEY, JSON.stringify(pins)); }
+
+/* ---------- المودال العام (نافذة صغيرة فوق الشاشة) ---------- */
+function zzEnsureAuthModal() {
+  if (document.getElementById("zz-auth-modal")) return;
+  const wrap = document.createElement("div");
+  wrap.id = "zz-auth-modal";
+  wrap.style.cssText = "display:none; position:fixed; inset:0; background:rgba(0,0,0,0.55); z-index:999; align-items:center; justify-content:center; padding:20px;";
+  wrap.innerHTML = `
+    <div style="background:#fff; border-radius:14px; padding:20px; width:100%; max-width:340px; text-align:right;">
+      <p id="zz-auth-title" style="font-weight:700; color:#0c447c; margin:0 0 10px;"></p>
+      <p id="zz-auth-msg" style="font-size:12px; color:#888; margin:0 0 12px;"></p>
+      <input id="zz-auth-input" style="width:100%; box-sizing:border-box; padding:10px; border:1px solid #ddd; border-radius:8px; font-size:15px; text-align:center; letter-spacing:2px;">
+      <p id="zz-auth-error" style="color:#b91c1c; font-size:12px; display:none; margin:8px 0 0;"></p>
+      <button class="btn btn-primary" style="margin-top:14px;" onclick="zzAuthSubmit()">دخول</button>
+      <button class="btn btn-secondary" style="margin-top:8px;" onclick="zzAuthClose()">إلغاء</button>
+    </div>
+  `;
+  document.body.appendChild(wrap);
+}
+
+let zzAuthPendingKey = null;
+let zzAuthMode = null; // "pin" | "phone"
+
+function zzAuthClose() {
+  document.getElementById("zz-auth-modal").style.display = "none";
+  zzAuthPendingKey = null;
+}
+
+function zzAuthShow(key, mode, title, msg) {
+  zzEnsureAuthModal();
+  zzAuthPendingKey = key;
+  zzAuthMode = mode;
+  document.getElementById("zz-auth-title").textContent = title;
+  document.getElementById("zz-auth-msg").textContent = msg;
+  document.getElementById("zz-auth-input").value = "";
+  document.getElementById("zz-auth-input").type = mode === "pin" ? "password" : "tel";
+  document.getElementById("zz-auth-input").placeholder = mode === "pin" ? "أدخل كود الدخول" : "01xxxxxxxxx";
+  document.getElementById("zz-auth-error").style.display = "none";
+  document.getElementById("zz-auth-modal").style.display = "flex";
+}
+
+function zzAuthSubmit() {
+  const val = document.getElementById("zz-auth-input").value.trim();
+  const key = zzAuthPendingKey;
+  if (!key) return;
+
+  if (zzAuthMode === "pin") {
+    const pins = zzGetPins();
+    if (val && val === pins[key]) {
+      zzAuthClose();
+      selectRole(key, false);
+    } else {
+      const err = document.getElementById("zz-auth-error");
+      err.textContent = "كود الدخول غير صحيح";
+      err.style.display = "block";
+    }
+    return;
+  }
+
+  // وضع العملاء: تحقق برقم الموبايل من الطلبات المعتمدة
+  let regs = [];
+  try { regs = JSON.parse(localStorage.getItem("zamzam_pending_registrations")) || []; } catch (e) {}
+  const match = regs.find((r) => r.phone === val && r.type === key && r.status === "مُعتمد ✅");
+  if (match) {
+    ROLES[key].name = match.name;
+    zzAuthClose();
+    selectRole(key, false);
+  } else {
+    const err = document.getElementById("zz-auth-error");
+    err.textContent = "مفيش حساب معتمد بالرقم ده. سجّل حساب جديد أو استنى موافقة الإدارة";
+    err.style.display = "block";
+  }
+}
+
+/* ---------- بوابة الدخول: بتستبدل الدخول المباشر بأي دور ---------- */
+function zzRequestAccess(key) {
+  const r = ROLES[key];
+  if (!r) return;
+  if (ZZ_STAFF_ROLES.includes(key)) {
+    zzAuthShow(key, "pin", "دخول " + r.label, "اكتب كود الدخول الخاص بحسابك");
+  } else if (ZZ_CUSTOMER_ROLES.includes(key)) {
+    zzAuthShow(key, "phone", "دخول " + r.label, "اكتب رقم الموبايل اللي سجّلت بيه");
+  } else {
+    selectRole(key, false);
+  }
+}
+
+/* ---------- إعادة تعريف بناء شاشة اختيار الحساب لتستخدم البوابة ---------- */
+function buildRolePicker() {
+  const grid = document.getElementById("role-grid");
+  grid.innerHTML = "";
+  Object.keys(ROLES).forEach((key) => {
+    const r = ROLES[key];
+    const btn = document.createElement("button");
+    btn.className = "role-btn";
+    btn.onclick = () => zzRequestAccess(key);
+    btn.innerHTML = `<span class="ic">${r.icon}</span><span class="lbl">${r.label}</span>`;
+    grid.appendChild(btn);
+  });
+}
+
+/* ---------- شاشة الأدمن لإدارة أكواد دخول الموظفين ---------- */
+function adminOpenAccessCodes() {
+  const pins = zzGetPins();
+  const rows = ZZ_STAFF_ROLES.map((key, i) => `
+    <label>${ROLES[key].label}</label>
+    <input id="zz-pin-${i}" type="text" value="${pins[key]}" maxlength="6">
+  `).join("");
+
+  showDetail(`
+    <p class="section-title"><button class="back-btn" onclick="goHome()">→</button> أكواد دخول الموظفين</p>
+    <p style="font-size:12px; color:var(--text-muted); margin-bottom:14px;">
+      كل موظف (فني / مشغل / مشرف / أدمن) محتاج يدخل الكود ده عشان يفتح حسابه.
+      غيّر الأكواد دي دوريًا للحفاظ على الأمان.
+    </p>
+    ${rows}
+    <button class="btn btn-primary" style="margin-top:14px;" onclick="adminSaveAccessCodes()">حفظ الأكواد</button>
+  `, "access_codes");
+}
+
+function adminSaveAccessCodes() {
+  const pins = {};
+  ZZ_STAFF_ROLES.forEach((key, i) => {
+    const val = document.getElementById("zz-pin-" + i).value.trim();
+    pins[key] = val || ZZ_DEFAULT_PINS[key];
+  });
+  zzSetPins(pins);
+  zzToast("تم حفظ أكواد الدخول ✅", "ok");
+  goHome();
+}
+
+/* ---------- تسجيل زرار إدارة الأكواد في قائمة الأدمن ---------- */
+(function zzRegisterAccessCodesAction() {
+  const adminRole = ROLES.admin;
+  if (!adminRole) return;
+  if (!SECTION_HANDLERS.admin) SECTION_HANDLERS.admin = {};
+  if (!adminRole.actions.some((a) => a.key === "access_codes")) {
+    adminRole.actions.push({ key: "access_codes", icon: "🔑", label: "أكواد الدخول" });
+  }
+  SECTION_HANDLERS.admin.access_codes = adminOpenAccessCodes;
+})();
+
 </script>
 </body>
 </html>
