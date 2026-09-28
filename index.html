@@ -4195,5 +4195,243 @@ function zzTechOptionsFor(req, techs) {
 }
 
 </script>
+<script>
+/* =========================================================
+   زمزم — المزامنة السحابية (Supabase)
+   بتخلي كل الأجهزة تشوف نفس البيانات (الأدمن / الفنيين / العملاء...).
+   الفكرة: كل مفتاح zamzam_* في المتصفح بيتنسخ لجدول kv على Supabase،
+   وبنسحب التحديثات من السيرفر كل كام ثانية.
+
+   تنبيه أمان: المفتاح العام موجود في كود الصفحة، والجدول مفتوح للقراءة
+   والكتابة (مرحلة تجربة). ما تدخلش بيانات حقيقية (بطاقات/باسوردات
+   حقيقية) لحد ما نأمّن السيرفر بشكل كامل.
+   ========================================================= */
+
+const ZZ_SB_URL = "https://ccbxkkqbihnqislbgjee.supabase.co";
+const ZZ_SB_KEY = "sb_publishable_6S7gVcCUNsCmyVn6YIaWMw__UXS6jX5";
+const ZZ_SYNC_ON = ZZ_SB_KEY.indexOf("__") !== 0;
+
+const ZZ_EPOCH_KEY = "zamzam_reset_epoch";
+const ZZ_LOCAL_EPOCH = "zamzam_local_epoch";
+// مفاتيح خاصة بكل جهاز — مش بتتزامن
+const ZZ_SYNC_EXCLUDE = new Set([
+  "zamzam_current_role", "zamzam_session_name", "zamzam_hc_profile",
+  "zamzam_data_version", "zamzam_op_station", ZZ_LOCAL_EPOCH, ZZ_EPOCH_KEY,
+]);
+
+const zzRawGet = Storage.prototype.getItem;
+const zzRawSet = Storage.prototype.setItem;
+const zzRawRemove = Storage.prototype.removeItem;
+let zzApplying = false;
+let zzToastedOk = false;
+let zzToastedFail = false;
+const zzPending = {};
+const zzChains = {};
+const zzDirty = new Set();
+
+function zzIsSynced(key) {
+  return typeof key === "string" && key.indexOf("zamzam_") === 0 && !ZZ_SYNC_EXCLUDE.has(key);
+}
+
+async function zzSbFetch(path, opts) {
+  const o = opts || {};
+  const ctl = typeof AbortController !== "undefined" ? new AbortController() : null;
+  const timer = ctl ? setTimeout(() => ctl.abort(), 9000) : null;
+  try {
+    return await fetch(ZZ_SB_URL + "/rest/v1/" + path, {
+      method: o.method || "GET",
+      headers: Object.assign({ apikey: ZZ_SB_KEY, "Content-Type": "application/json" }, o.headers || {}),
+      body: o.body,
+      signal: ctl ? ctl.signal : undefined,
+    });
+  } finally { if (timer) clearTimeout(timer); }
+}
+
+function zzApplyLocal(key, val) {
+  zzApplying = true;
+  try { zzRawSet.call(window.localStorage, key, val); } finally { zzApplying = false; }
+}
+
+function zzParse(s) { try { return JSON.parse(s); } catch (e) { return undefined; } }
+function zzIsIdArray(a) { return Array.isArray(a) && a.every((x) => x && typeof x === "object" && x.id !== undefined); }
+
+/* دمج ذكي للقوائم اللي ليها id: بيحفظ إضافات الأجهزة التانية ومش بيرجّع اللي اتحذف عمدًا */
+function zzMergeValues(oldS, newS, remS) {
+  const n = zzParse(newS), r = zzParse(remS), o = zzParse(oldS);
+  if (!zzIsIdArray(n) || !zzIsIdArray(r)) return newS;
+  const oldMap = new Map((zzIsIdArray(o) ? o : []).map((x) => [x.id, JSON.stringify(x)]));
+  const remMap = new Map(r.map((x) => [x.id, x]));
+  const newIds = new Set(n.map((x) => x.id));
+  const removed = new Set([...oldMap.keys()].filter((id) => !newIds.has(id)));
+  const merged = n.map((x) => {
+    const os = oldMap.get(x.id);
+    if (os !== undefined && os === JSON.stringify(x) && remMap.has(x.id)) return remMap.get(x.id); // ما اتغيّرش عندنا → نفضّل نسخة السيرفر
+    return x;
+  });
+  const extras = r.filter((x) => !newIds.has(x.id) && !removed.has(x.id));
+  return JSON.stringify(merged.concat(extras));
+}
+
+async function zzPushKey(key, oldS, newS) {
+  let remote = null;
+  const g = await zzSbFetch("kv?key=eq." + encodeURIComponent(key) + "&select=value");
+  if (!g.ok) throw new Error("get " + g.status);
+  const rows = await g.json();
+  if (rows.length) remote = rows[0].value;
+  const merged = remote === null ? newS : zzMergeValues(oldS, newS, remote);
+  if (merged !== newS) zzApplyLocal(key, merged);
+  const p = await zzSbFetch("kv?on_conflict=key", {
+    method: "POST",
+    headers: { Prefer: "resolution=merge-duplicates,return=minimal" },
+    body: JSON.stringify({ key, value: merged, updated_at: new Date().toISOString() }),
+  });
+  if (!p.ok) throw new Error("post " + p.status);
+  zzDirty.delete(key);
+}
+
+function zzRun(key, fn) {
+  zzChains[key] = (zzChains[key] || Promise.resolve()).then(fn).catch(() => { zzDirty.add(key); zzNoteFail(); });
+  return zzChains[key];
+}
+function zzNoteFail() {
+  if (!zzToastedFail && typeof zzToast === "function") { zzToastedFail = true; zzToast("تعذر الاتصال بالسيرفر — البيانات محفوظة على جهازك مؤقتًا", "danger"); }
+}
+
+function zzQueuePush(key, oldS, newS) {
+  const p = zzPending[key];
+  if (p) { p.val = newS; return; }
+  zzPending[key] = { old: oldS, val: newS };
+  setTimeout(() => {
+    const item = zzPending[key]; delete zzPending[key];
+    zzRun(key, () => zzPushKey(key, item.old, item.val));
+  }, 400);
+}
+
+/* ---------- التقاط كل الكتابات والحذف في localStorage ---------- */
+if (ZZ_SYNC_ON) {
+  Storage.prototype.setItem = function (k, v) {
+    if (!zzApplying && this === window.localStorage && zzIsSynced(k)) {
+      const old = zzRawGet.call(this, k);
+      zzRawSet.call(this, k, v);
+      zzQueuePush(k, old, String(v));
+      return;
+    }
+    return zzRawSet.call(this, k, v);
+  };
+  Storage.prototype.removeItem = function (k) {
+    zzRawRemove.call(this, k);
+    if (!zzApplying && this === window.localStorage && zzIsSynced(k)) {
+      zzRun(k, async () => { await zzSbFetch("kv?key=eq." + encodeURIComponent(k), { method: "DELETE" }); });
+    }
+  };
+}
+
+function zzLocalSyncedKeys() {
+  const out = [];
+  for (let i = 0; i < window.localStorage.length; i++) {
+    const k = window.localStorage.key(i);
+    if (zzIsSynced(k)) out.push(k);
+  }
+  return out;
+}
+
+/* ---------- سحب التحديثات ---------- */
+let zzPulling = false;
+async function zzPullAll() {
+  if (!ZZ_SYNC_ON || zzPulling) return false;
+  zzPulling = true;
+  let changed = false;
+  try {
+    const res = await zzSbFetch("kv?select=key,value");
+    if (!res.ok) throw new Error("pull " + res.status);
+    const rows = await res.json();
+
+    const epochRow = rows.find((r) => r.key === ZZ_EPOCH_KEY);
+    const localEpoch = zzRawGet.call(window.localStorage, ZZ_LOCAL_EPOCH);
+    if (epochRow && epochRow.value !== localEpoch) {
+      // حصل تصفير للتجربة من جهاز تاني → نمسح النسخة المحلية ونبدأ من السيرفر
+      zzLocalSyncedKeys().forEach((k) => zzRawRemove.call(window.localStorage, k));
+      zzRawSet.call(window.localStorage, ZZ_LOCAL_EPOCH, epochRow.value);
+      changed = true;
+    }
+
+    const remoteKeys = new Set();
+    rows.forEach((r) => {
+      if (!zzIsSynced(r.key)) return;
+      remoteKeys.add(r.key);
+      if (zzPending[r.key] || zzDirty.has(r.key)) return; // عندنا تعديل لسه ما اترفعش
+      if (zzRawGet.call(window.localStorage, r.key) !== r.value) {
+        zzApplyLocal(r.key, r.value);
+        changed = true;
+        if (r.key === "zamzam_custom_sections" && typeof zzRegisterCustomSections === "function") zzRegisterCustomSections();
+      }
+    });
+
+    // مفاتيح موجودة عندنا بس ومش على السيرفر، أو تعديلات فشل رفعها قبل كده → نرفعها
+    zzLocalSyncedKeys().forEach((k) => {
+      if ((!remoteKeys.has(k) || zzDirty.has(k)) && !zzPending[k]) {
+        const v = zzRawGet.call(window.localStorage, k);
+        zzRun(k, () => zzPushKey(k, null, v));
+      }
+    });
+
+    if (!zzToastedOk && typeof zzToast === "function") { zzToastedOk = true; zzToast("متصل بالسيرفر ✅", "ok"); }
+    zzToastedFail = false;
+  } catch (e) {
+    zzNoteFail();
+  } finally { zzPulling = false; }
+
+  if (changed) {
+    try {
+      const home = document.getElementById("screen-home");
+      if (home && home.classList.contains("active") && typeof currentRole !== "undefined" && currentRole) renderHome();
+    } catch (e) {}
+  }
+  return changed;
+}
+
+/* ---------- تشغيل المزامنة ---------- */
+let zzSyncReady = Promise.resolve();
+if (ZZ_SYNC_ON) {
+  zzSyncReady = Promise.race([zzPullAll(), new Promise((r) => setTimeout(r, 6000))]);
+  setInterval(() => { if (!document.hidden) zzPullAll(); }, 6000);
+  document.addEventListener("visibilitychange", () => { if (!document.hidden) zzPullAll(); });
+
+  /* الدخول: نسحب أحدث بيانات (الفريق/العملاء) قبل التحقق */
+  const zzOrigLogin = zzUnifiedLogin;
+  window.zzUnifiedLogin = async function () {
+    const err = document.getElementById("lg-err");
+    if (err) { err.textContent = "جاري التحقق..."; err.style.display = "block"; }
+    await Promise.race([zzPullAll().catch(() => {}), new Promise((r) => setTimeout(r, 6000))]);
+    if (err) err.style.display = "none";
+    zzOrigLogin();
+  };
+
+  /* التصفير: يمسح السيرفر كمان، وباقي الأجهزة تتصفّر عند أول سحب */
+  window.adminResetAllData = async function () {
+    if (!confirm("هيتم مسح كل بيانات التجربة من السيرفر ومن كل الأجهزة. متأكد؟")) return;
+    if (!confirm("تأكيد أخير: المسح نهائي ومفيش رجوع.")) return;
+    try {
+      const del = await zzSbFetch("kv?key=not.is.null", { method: "DELETE" });
+      if (!del.ok) throw new Error("del " + del.status);
+      const epoch = String(Date.now());
+      const up = await zzSbFetch("kv?on_conflict=key", {
+        method: "POST",
+        headers: { Prefer: "resolution=merge-duplicates,return=minimal" },
+        body: JSON.stringify({ key: ZZ_EPOCH_KEY, value: epoch, updated_at: new Date().toISOString() }),
+      });
+      if (!up.ok) throw new Error("epoch " + up.status);
+      zzLocalSyncedKeys().forEach((k) => zzRawRemove.call(window.localStorage, k));
+      zzRawSet.call(window.localStorage, ZZ_LOCAL_EPOCH, epoch);
+    } catch (e) {
+      alert("تعذر مسح بيانات السيرفر — تأكد من الاتصال وحاول تاني");
+      return;
+    }
+    location.reload();
+  };
+  if (SECTION_HANDLERS.admin) SECTION_HANDLERS.admin.reset_data = window.adminResetAllData;
+}
+
+</script>
 </body>
 </html>
