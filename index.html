@@ -462,6 +462,7 @@ input, select, textarea {
         <p id="zz-content-icon" style="font-size:34px; margin:0 0 6px;"></p>
         <p id="zz-content-title" style="font-weight:700; color:#0c447c; margin:0 0 8px;"></p>
         <p id="zz-content-body" style="font-size:13px; color:#555; line-height:1.8; white-space:pre-line;"></p>
+        <div id="zz-content-link-wrap"></div>
         <button class="btn btn-secondary" style="margin-top:14px;" onclick="showSplashStep('public_home')">→ رجوع للبداية</button>
       </div>
     </div>
@@ -470,6 +471,22 @@ input, select, textarea {
     <div id="splash-step-sysform" class="splash-step" style="display:none; position:fixed; inset:0; z-index:60; background:#fff; margin:0; width:100%; height:100%;">
       <button class="btn btn-secondary" style="position:absolute; top:10px; right:10px; z-index:5; width:auto; padding:8px 14px;" onclick="showSplashStep('public_home')">→ رجوع</button>
       <iframe id="zz-sysform-frame" style="width:100%; height:100%; border:0; display:block;"></iframe>
+    </div>
+
+    <!-- مشاركة الموقع — صفحة مستقلة للعميل يفتحها من لينك مباشر، من غير تسجيل دخول -->
+    <div id="splash-step-locate" class="splash-step" style="display:none;">
+      <div class="splash-form-card" style="text-align:center;">
+        <p style="font-size:34px; margin:0 0 6px;">📍</p>
+        <p style="font-weight:700; color:#0c447c; margin:0 0 8px;">مشاركة موقعك مع زمزم</p>
+        <p style="font-size:13px; color:#555; margin:0 0 14px;">
+          عشان الفني يوصلك بسهولة، اضغط "تحديد موقعي" وبعدين اكتب رقم موبايلك اللي سجّلت بيه واضغط إرسال.
+        </p>
+        <button class="btn btn-accent" type="button" onclick="zzLocateCaptureGps()">📍 تحديد موقعي</button>
+        <p id="zz-locate-msg" style="font-size:12px; color:var(--text-muted); margin:10px 0;"></p>
+        <label style="text-align:right; display:block;">رقم الموبايل</label>
+        <input id="zz-locate-phone" type="tel" placeholder="01xxxxxxxxx">
+        <button class="btn btn-primary" style="margin-top:14px;" onclick="zzLocateSubmit()">إرسال الموقع</button>
+      </div>
     </div>
 
     <div class="splash-legal">
@@ -672,6 +689,7 @@ const ROLES = {
       { key: "users", icon: "👥", label: "المستخدمون والصلاحيات" },
       { key: "requests", icon: "🧰", label: "طلبات الصيانة" },
       { key: "finance", icon: "💰", label: "التقارير المالية" },
+      { key: "guide", icon: "📖", label: "الدليل" },
       { key: "ads", icon: "📢", label: "الإعلانات" },
       { key: "media", icon: "🖼️", label: "صور وفيديوهات المحطات" },
       { key: "ratings", icon: "⭐", label: "نظام التقييمات" },
@@ -724,6 +742,12 @@ const SECTION_HANDLERS = {};
 /* ---------- بدء التشغيل ---------- */
 function initApp() {
   buildRolePicker();
+  if (new URLSearchParams(location.search).get("locate") === "1") {
+    document.getElementById("screen-splash").style.display = "flex";
+    document.getElementById("app-shell").style.display = "none";
+    showSplashStep("locate");
+    return;
+  }
   const saved = localStorage.getItem(STORAGE_KEY);
   if (saved && ROLES[saved]) {
     selectRole(saved, true);
@@ -739,7 +763,7 @@ function showSplash() {
 }
 
 function showSplashStep(step) {
-  ["public_home", "login", "register", "pending", "about", "content", "sysform"].forEach((s) => {
+  ["public_home", "login", "register", "pending", "about", "content", "sysform", "locate"].forEach((s) => {
     const el = document.getElementById("splash-step-" + s);
     // شاشة الصفحة العامة عرضها flex (عشان الهيدر والبانر والنافبار)، والباقي block عادي
     el.style.display = s === step ? (s === "public_home" ? "flex" : "block") : "none";
@@ -762,7 +786,7 @@ function togglePublicMenu() {
   menu.style.display = menu.style.display === "block" ? "none" : "block";
 }
 
-function submitRegistration() {
+async function submitRegistration() {
   const name = document.getElementById("reg-name").value.trim();
   const phone = document.getElementById("reg-phone").value.trim();
   const type = document.getElementById("reg-type").value;
@@ -781,7 +805,7 @@ function submitRegistration() {
   let pending = [];
   try { pending = JSON.parse(localStorage.getItem("zamzam_pending_registrations")) || []; } catch (e) {}
   pending.unshift({
-    id: Date.now(), name, phone, type, address, purpose, area, password: pass,
+    id: Date.now(), name, phone, type, address, purpose, area, password: await zzHash(pass),
     status: "قيد المراجعة",
     createdAt: new Date().toISOString().slice(0, 10),
   });
@@ -1423,6 +1447,10 @@ function hcOpenMaintForm() {
         <button type="button" class="btn btn-outline" style="width:auto; padding:10px 14px; white-space:nowrap;" onclick="hcCaptureGps()">📍 تحديد</button>
       </div>
       <span id="hc-gps-msg" style="font-size:11px; color:var(--text-muted); display:block; margin-top:4px;"></span>
+      <p style="font-size:11px; color:var(--text-muted); margin:6px 0 0;">
+        الزرار بيحدد موقعك إنت لو بتكتب الطلب بنفسك. لو فني أو الإدارة بيسجله نيابةً عنك، ابعتله يشاركك
+        <a href="#" onclick="zzShareLocateLink(); return false;">لينك تحديد الموقع</a> بدل كده.
+      </p>
 
       <label>نوع الفلتر</label>
       <select id="hc-type">
@@ -1454,6 +1482,12 @@ function hcOpenMaintForm() {
     </div>
   `, "maint");
   zzFillAreaSelect("hc-area", profile.area);
+  const savedGps = zzAutofillGpsFromSubmission(profile.phone);
+  if (savedGps) {
+    document.getElementById("hc-gps").value = savedGps;
+    document.getElementById("hc-gps-msg").textContent = "تم جلب موقع سبق إرساله ✅";
+    document.getElementById("hc-gps-msg").style.color = "var(--brand-green)";
+  }
 }
 
 function hcCaptureGps() {
@@ -1665,7 +1699,7 @@ function techRenderBadges() {
   const stars = zzPrimaryStarsFor("home_technician", ROLES.home_technician.name);
   const box = document.getElementById("home-badges");
   box.innerHTML = `
-    <span class="badge-note ${requests.length ? "status-alert" : "status-ok"}">📥 طلبات جديدة بانتظار التحديد: ${requests.length}</span>
+    <span class="badge-note ${requests.length ? "status-alert" : "status-ok"}" style="cursor:pointer;" onclick="handleNavClick('requests')">📥 طلبات جديدة بانتظار التحديد: ${requests.length} ‹</span>
     <span class="badge-note">📅 مهام مجدولة لسه ما اتنفذتش: ${tasks.length}</span>
     <span class="badge-note">⭐ تقييمك: ${zzStarsHTML(stars)}</span>
   `;
@@ -1895,7 +1929,8 @@ function techOpenMyInvoices() {
     <div class="list-row">
       <div class="t">فاتورة #${inv.number} — ${inv.amount} جنيه${inv.adminIssued ? " • 🏢 صادرة من الإدارة" : ""}</div>
       <div class="s">${zzEscape(inv.customer || "")} • ${inv.date} • ${inv.status}</div>
-      <button class="btn btn-outline" style="margin-top:8px; width:auto; padding:6px 12px; font-size:12px;" onclick="techPrintInvoice('${inv.number}')">🖨️ طباعة</button>
+      <button class="btn btn-outline" style="margin-top:8px; width:auto; padding:6px 12px; font-size:12px;" onclick="techPrintInvoice('${inv.number}')">🖨️ طباعة عادية</button>
+      <button class="btn btn-outline" style="margin-top:8px; width:auto; padding:6px 12px; font-size:12px;" onclick="techPrintInvoiceBluetooth('${inv.number}')">🔵 طباعة بلوتوث مباشرة</button>
     </div>
   `).join("");
 
@@ -1913,7 +1948,14 @@ function techPrintInvoice(number) {
   const w = window.open("", "_blank");
   w.document.write(`
     <html dir="rtl"><head><meta charset="utf-8"><title>فاتورة #${inv.number}</title>
-    <style>body{font-family:Tahoma,Arial,sans-serif; padding:24px;} h2{color:#0c447c;} table{width:100%; border-collapse:collapse; margin-top:16px;} td{padding:8px; border-bottom:1px solid #eee;}</style>
+    <style>
+      @page { size: auto; margin: 12mm; }
+      html, body { height: auto !important; }
+      body{font-family:Tahoma,Arial,sans-serif; padding:24px; margin:0;}
+      h2{color:#0c447c;}
+      table{width:100%; border-collapse:collapse; margin-top:16px;}
+      td{padding:8px; border-bottom:1px solid #eee;}
+    </style>
     </head><body>
     <h2>زمزم لتكنولوجيا المياه والطاقة</h2>
     <p>فاتورة رقم #${zzEscape(String(inv.number))}</p>
@@ -1924,9 +1966,68 @@ function techPrintInvoice(number) {
       <tr><td>القيمة</td><td>${inv.amount} جنيه</td></tr>
       <tr><td>الحالة</td><td>${zzEscape(inv.status)}</td></tr>
     </table>
+    <script>
+      // ننتظر التحميل الكامل فعليًا قبل ما نطبع، عشان الصفحة ما تتقصش
+      window.onload = function () {
+        setTimeout(function () { window.focus(); window.print(); }, 200);
+      };
+    <\/script>
     </body></html>`);
   w.document.close();
-  w.print();
+}
+
+/* ---------- طباعة بلوتوث مباشرة (تجريبي — Android Chrome بس) ---------- */
+async function techPrintInvoiceBluetooth(number) {
+  const inv = hcGet(HC_KEYS.invoices).find((i) => String(i.number) === String(number));
+  if (!inv) return;
+  if (!navigator.bluetooth) {
+    zzToast("الطباعة المباشرة بالبلوتوث متاحة بس على Chrome في أندرويد", "danger");
+    return;
+  }
+  const knownServices = [
+    "000018f0-0000-1000-8000-00805f9b34fb",
+    "49535343-fe7d-4ae5-8fa9-9fafd205e455",
+    "0000ffe0-0000-1000-8000-00805f9b34fb",
+  ];
+  try {
+    zzToast("دور على طابعتك في القائمة اللي هتظهر...", "ok");
+    const device = await navigator.bluetooth.requestDevice({ acceptAllDevices: true, optionalServices: knownServices });
+    const server = await device.gatt.connect();
+    let char = null;
+    for (const svcId of knownServices) {
+      try {
+        const svc = await server.getPrimaryService(svcId);
+        const chars = await svc.getCharacteristics();
+        char = chars.find((c) => c.properties.write || c.properties.writeWithoutResponse) || chars[0];
+        if (char) break;
+      } catch (e) {}
+    }
+    if (!char) {
+      zzToast("اتصلت بالطابعة بس الموديل ده لسه مش مدعوم للطباعة المباشرة — استخدم الطباعة العادية", "danger");
+      return;
+    }
+    const ESC = 0x1b, GS = 0x1d;
+    const text = [
+      "ZAMZAM WATER TECHNOLOGY",
+      "Invoice #" + inv.number,
+      "Customer: " + (inv.customer || "-"),
+      "Technician: " + (inv.technician || "-"),
+      "Date: " + inv.date,
+      "Amount: " + inv.amount + " EGP",
+      "Status: " + (inv.status === "مدفوعة" ? "PAID" : "UNPAID"),
+      "", "", "",
+    ].join("\n");
+    const bytes = new Uint8Array([ESC, 0x40, ...new TextEncoder().encode(text), GS, 0x56, 0x00]);
+    const CHUNK = 100;
+    for (let i = 0; i < bytes.length; i += CHUNK) {
+      await char.writeValue(bytes.slice(i, i + CHUNK));
+      await new Promise((r) => setTimeout(r, 30));
+    }
+    zzToast("تم إرسال الفاتورة للطابعة ✅", "ok");
+  } catch (e) {
+    console.error(e);
+    zzToast("تعذر الاتصال بالطابعة — تأكد إن البلوتوث شغال والطابعة في وضع الإقران", "danger");
+  }
 }
 
 /* ---------- الفني: كتابة فاتورة يدويًا (من غير تقرير زيارة) ---------- */
@@ -2029,7 +2130,7 @@ function opRenderBadges() {
   box.innerHTML = `
     <span class="badge-note">🏭 ${st.name} - ${st.unit}</span>
     <span class="badge-note ${last && (last.recoveryRate < (st.recoveryMin || RECOVERY_MIN_DEFAULT) || last.recoveryRate > (st.recoveryMax || RECOVERY_MAX_DEFAULT)) ? "status-alert" : "status-ok"}">📊 ${rateText}</span>
-    ${alerts.length ? `<span class="badge-note status-alert">🔔 عندك ${alerts.length} تنبيه غير محلول</span>` : ""}
+    ${alerts.length ? `<span class="badge-note status-alert" style="cursor:pointer;" onclick="handleNavClick('station')">🔔 عندك ${alerts.length} تنبيه غير محلول ‹</span>` : ""}
     <span class="badge-note">⭐ تقييمك: ${zzStarsHTML(stars)}</span>
   `;
 }
@@ -2263,8 +2364,8 @@ function supRenderBadges() {
 
   const box = document.getElementById("home-badges");
   box.innerHTML = `
-    <span class="badge-note ${unresolved.length ? "status-alert" : "status-ok"}">🔔 تنبيهات غير محلولة: ${unresolved.length} ${highCount ? "(منها " + highCount + " عالية الخطورة)" : ""}</span>
-    <span class="badge-note ${pendingApproval ? "status-alert" : "status-ok"}">✅ قراءات بانتظار الاعتماد: ${pendingApproval}</span>
+    <span class="badge-note ${unresolved.length ? "status-alert" : "status-ok"}" style="cursor:pointer;" onclick="handleNavClick('alerts')">🔔 تنبيهات غير محلولة: ${unresolved.length} ${highCount ? "(منها " + highCount + " عالية الخطورة)" : ""} ‹</span>
+    <span class="badge-note ${pendingApproval ? "status-alert" : "status-ok"}" style="cursor:pointer;" onclick="handleNavClick('approve')">✅ قراءات بانتظار الاعتماد: ${pendingApproval} ‹</span>
     <span class="badge-note">⭐ تقييمك: ${zzStarsHTML(stars)}</span>
   `;
 }
@@ -2513,7 +2614,7 @@ function donorRenderBadges() {
   box.innerHTML = `
     <span class="badge-note">🏭 عدد محطاتك: ${stations.length}</span>
     <span class="badge-note status-ok">👨‍👩‍👧‍👦 إجمالي المستفيدين التقريبي: ${totalBeneficiaries.toLocaleString()} فرد</span>
-    ${live.hasAlerts ? '<span class="badge-note status-alert">🔔 إحدى محطاتك عندها تنبيه غير محلول حاليًا</span>' : '<span class="badge-note status-ok">✅ كل محطاتك تعمل بشكل طبيعي</span>'}
+    ${live.hasAlerts ? '<span class="badge-note status-alert" style="cursor:pointer;" onclick="handleNavClick(\'stations\')">🔔 إحدى محطاتك عندها تنبيه غير محلول حاليًا ‹</span>' : '<span class="badge-note status-ok">✅ كل محطاتك تعمل بشكل طبيعي</span>'}
   `;
 }
 
@@ -2715,16 +2816,13 @@ function adminSeedIfEmpty() {
 function adminRenderBadges() {
   const alerts = opGet(OP_KEYS.alerts).filter((a) => !a.resolved);
   const requests = hcGet(HC_KEYS.requests).filter((r) => r.status === "بانتظار التحديد");
-  const invoices = hcGet(HC_KEYS.invoices);
-  const totalRevenue = invoices.reduce((s, i) => s + i.amount, 0);
   const pendingRegs = adminGetPendingRegs().filter((r) => r.status === "قيد المراجعة");
 
   const box = document.getElementById("home-badges");
   box.innerHTML = `
-    <span class="badge-note ${pendingRegs.length ? "status-alert" : "status-ok"}">📝 طلبات تسجيل جديدة بانتظار الاعتماد: ${pendingRegs.length}</span>
-    <span class="badge-note ${alerts.length ? "status-alert" : "status-ok"}">🔔 تنبيهات غير محلولة في النظام: ${alerts.length}</span>
-    <span class="badge-note ${requests.length ? "status-alert" : "status-ok"}">🧰 طلبات صيانة بانتظار التوزيع: ${requests.length}</span>
-    <span class="badge-note">💰 إجمالي الفواتير المسجلة: ${totalRevenue.toLocaleString()} جنيه</span>
+    <span class="badge-note ${pendingRegs.length ? "status-alert" : "status-ok"}" style="cursor:pointer;" onclick="handleNavClick('registrations')">📝 طلبات تسجيل جديدة بانتظار الاعتماد: ${pendingRegs.length} ‹</span>
+    <span class="badge-note ${alerts.length ? "status-alert" : "status-ok"}" style="cursor:pointer;" onclick="handleNavClick('alerts')">🔔 تنبيهات غير محلولة في النظام: ${alerts.length} ‹</span>
+    <span class="badge-note ${requests.length ? "status-alert" : "status-ok"}" style="cursor:pointer;" onclick="handleNavClick('requests')">🧰 طلبات صيانة بانتظار التوزيع: ${requests.length} ‹</span>
   `;
 }
 
@@ -2862,7 +2960,7 @@ function adminOpenUsers() {
   `, "users");
 }
 
-function adminAddTeamMember() {
+async function adminAddTeamMember() {
   const name = document.getElementById("team-new-name").value.trim();
   const role = document.getElementById("team-new-dept").value;
   const username = document.getElementById("team-new-username").value.trim().toLowerCase();
@@ -2880,7 +2978,7 @@ function adminAddTeamMember() {
     if (!/^\d{14}$/.test(nationalId)) { zzToast("رقم البطاقة لازم 14 رقم", "danger"); return; }
     if (!username || password.length < 4) { zzToast("محتاج اسم مستخدم وباسورد (4 أحرف على الأقل)", "danger"); return; }
     if (team.some((u) => u.username === username)) { zzToast("اسم المستخدم ده مستخدم قبل كده، اختار غيره", "danger"); return; }
-    member.username = username; member.password = password;
+    member.username = username; member.password = await zzHash(password);
     member.phone = phone; member.whatsapp = whatsapp; member.nationalId = nationalId;
     if (role === "فني صيانة منزلية") {
       member.areas = zzReadChecks("team-new-area", zzAreaItems());
@@ -2896,7 +2994,7 @@ function adminAddTeamMember() {
   adminOpenUsers();
 }
 
-function adminSetMemberCredentials(userId) {
+async function adminSetMemberCredentials(userId) {
   const team = adminGetTeam();
   const m = team.find((u) => u.id === userId);
   if (!m) return;
@@ -2909,7 +3007,7 @@ function adminSetMemberCredentials(userId) {
   if (!m.password && password.length < 4) { zzToast("الباسورد لازم 4 أحرف على الأقل", "danger"); return; }
   if (password && password.length < 4) { zzToast("الباسورد لازم 4 أحرف على الأقل", "danger"); return; }
   m.username = username;
-  if (password) m.password = password;
+  if (password) m.password = await zzHash(password);
   adminSetTeam(team);
   zzToast("تم حفظ حساب الدخول ✅", "ok");
   adminOpenUsers();
@@ -3013,7 +3111,43 @@ function adminOpenFinance() {
         <div style="font-size:17px; font-weight:700; color:var(--warning-text); margin-top:4px;">${unpaidAmount.toLocaleString()} ج</div>
       </div>
     </div>
+
+    <p style="font-weight:700; color:var(--brand-blue); margin:18px 0 8px;">📊 تحصيل كل فني</p>
+    ${adminFinanceByTech(invoices)}
+
+    <p style="font-weight:700; color:var(--brand-blue); margin:18px 0 8px;">🧾 كل الفواتير بالتفصيل</p>
+    ${adminFinanceInvoiceRows(invoices)}
   `, "finance");
+}
+
+function adminFinanceByTech(invoices) {
+  const byTech = {};
+  invoices.forEach((i) => {
+    const t = i.technician || "غير محدد";
+    if (!byTech[t]) byTech[t] = { count: 0, total: 0, paid: 0 };
+    byTech[t].count++;
+    byTech[t].total += i.amount;
+    if (i.status === "مدفوعة") byTech[t].paid += i.amount;
+  });
+  const names = Object.keys(byTech);
+  if (!names.length) return '<p style="font-size:13px; color:var(--text-muted);">لا يوجد فواتير بعد</p>';
+  return names.map((name) => `
+    <div class="list-row">
+      <div class="t">${zzEscape(name)}</div>
+      <div class="s">${byTech[name].count} فاتورة • إجمالي ${byTech[name].total.toLocaleString()} ج • محصّل ${byTech[name].paid.toLocaleString()} ج</div>
+    </div>
+  `).join("");
+}
+
+function adminFinanceInvoiceRows(invoices) {
+  if (!invoices.length) return '<p style="font-size:13px; color:var(--text-muted);">لا يوجد فواتير بعد</p>';
+  return invoices.map((i) => `
+    <div class="list-row">
+      <div class="t">فاتورة #${zzEscape(String(i.number))} — ${i.amount.toLocaleString()} جنيه</div>
+      <div class="s">👤 العميل: ${zzEscape(i.customer || "غير محدد")} • 🔧 الفني: ${zzEscape(i.technician || "غير محدد")}</div>
+      <div class="s">${i.date} • <span class="${i.status === "مدفوعة" ? "status-ok" : "status-alert"}" style="font-weight:600;">${i.status}</span>${i.adminIssued ? " • 🏢 أصدرتها الإدارة" : ""}</div>
+    </div>
+  `).join("");
 }
 
 /* ---------- شاشة: الإعلانات (إنشاء وإدارة) ---------- */
@@ -3820,6 +3954,20 @@ function zzSaveSession(key, name) { zzSafeSetItem(ZZ_SESSION_KEY, JSON.stringify
 const ZZ_CUSTOMER_ROLES = ["home_customer", "donor"];
 const ZZ_DEFAULT_PINS = { home_technician: "1111", operator: "2222", supervisor: "3333", admin: "9999" };
 
+async function zzHash(str) {
+  const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(String(str)));
+  return Array.from(new Uint8Array(buf)).map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+function zzLooksHashed(v) { return typeof v === "string" && /^[0-9a-f]{64}$/.test(v); }
+// بيرجع true/false، ولو كانت القيمة المخزنة نص صريح قديم (قبل التفعيل) بيرفّعها لهاش تلقائيًا
+async function zzCheckPass(inputPlain, stored, upgrade) {
+  if (!stored) return false;
+  if (zzLooksHashed(stored)) return (await zzHash(inputPlain)) === stored;
+  const ok = inputPlain === stored;
+  if (ok && typeof upgrade === "function") { try { await upgrade(await zzHash(inputPlain)); } catch (e) {} }
+  return ok;
+}
+
 function zzGetPins() {
   try { return { ...ZZ_DEFAULT_PINS, ...(JSON.parse(localStorage.getItem(ZZ_PIN_KEY)) || {}) }; }
   catch (e) { return { ...ZZ_DEFAULT_PINS }; }
@@ -3951,29 +4099,28 @@ function buildRolePicker() {
 
 /* ---------- شاشة الأدمن لإدارة أكواد دخول الموظفين ---------- */
 function adminOpenAccessCodes() {
-  const pins = zzGetPins();
   const rows = ZZ_STAFF_ROLES.map((key, i) => `
-    <label>${ROLES[key].label}</label>
-    <input id="zz-pin-${i}" type="text" value="${pins[key]}" maxlength="6">
+    <label>${ROLES[key].label} — كود جديد (اسيبه فاضي لو مش عايز تغيّره)</label>
+    <input id="zz-pin-${i}" type="text" placeholder="••••" maxlength="20">
   `).join("");
 
   showDetail(`
     <p class="section-title"><button class="back-btn" onclick="goHome()">→</button> أكواد دخول الموظفين</p>
     <p style="font-size:12px; color:var(--text-muted); margin-bottom:14px;">
-      كل موظف (فني / مشغل / مشرف / أدمن) محتاج يدخل الكود ده عشان يفتح حسابه.
-      غيّر الأكواد دي دوريًا للحفاظ على الأمان.
+      الأكواد مخزّنة مشفّرة ومش بتتعرض هنا لأي حد. اكتب كود جديد بس لو عايز تغيّره.
     </p>
     ${rows}
     <button class="btn btn-primary" style="margin-top:14px;" onclick="adminSaveAccessCodes()">حفظ الأكواد</button>
   `, "access_codes");
 }
 
-function adminSaveAccessCodes() {
-  const pins = {};
-  ZZ_STAFF_ROLES.forEach((key, i) => {
+async function adminSaveAccessCodes() {
+  const pins = zzGetPins();
+  for (let i = 0; i < ZZ_STAFF_ROLES.length; i++) {
+    const key = ZZ_STAFF_ROLES[i];
     const val = document.getElementById("zz-pin-" + i).value.trim();
-    pins[key] = val || ZZ_DEFAULT_PINS[key];
-  });
+    if (val) pins[key] = await zzHash(val);
+  }
   zzSetPins(pins);
   zzToast("تم حفظ أكواد الدخول ✅", "ok");
   goHome();
@@ -4040,6 +4187,12 @@ function zzOpenSiteContent(key) {
   document.getElementById("zz-content-icon").textContent = item.icon;
   document.getElementById("zz-content-title").textContent = item.title;
   document.getElementById("zz-content-body").textContent = item.body;
+  const linkWrap = document.getElementById("zz-content-link-wrap");
+  if (item.link) {
+    linkWrap.innerHTML = `<a class="btn btn-accent" style="margin-top:12px; display:inline-block; text-decoration:none;" href="${zzEscape(item.link)}" target="_blank" rel="noopener">🔗 زيارة الموقع</a>`;
+  } else {
+    linkWrap.innerHTML = "";
+  }
   showSplashStep("content");
 }
 
@@ -4050,6 +4203,8 @@ function adminOpenSiteContent() {
     <div class="card" style="margin-bottom:12px;">
       <p style="font-weight:700; color:var(--brand-blue); margin:0 0 6px;">${content[k].icon} ${content[k].title}</p>
       <textarea id="site-${k}" rows="5">${zzEscape(content[k].body)}</textarea>
+      <label>لينك الموقع الحقيقي لهذا القسم (اختياري)</label>
+      <input id="site-link-${k}" type="url" placeholder="https://zamzamwaterenergy.com/..." value="${zzEscape(content[k].link || "")}">
     </div>
   `).join("");
 
@@ -4066,7 +4221,7 @@ function adminOpenSiteContent() {
 function adminSaveSiteContent() {
   const saved = {};
   ZZ_EDITABLE_SECTIONS.forEach((k) => {
-    saved[k] = { body: document.getElementById("site-" + k).value };
+    saved[k] = { body: document.getElementById("site-" + k).value, link: document.getElementById("site-link-" + k).value.trim() };
   });
   zzSafeSetItem(ZZ_SITE_KEY, JSON.stringify(saved));
   zzToast("تم حفظ المحتوى ✅", "ok");
@@ -4096,13 +4251,13 @@ const ZZ_TECHVIS_KEY = "zamzam_tech_visible_fields";
 
 function zzGetAreas() {
   try { const a = JSON.parse(localStorage.getItem(ZZ_AREAS_KEY)); if (Array.isArray(a)) return a; } catch (e) {}
-  return ["الإسماعيلية"];
+  return []; // محدش بيتحط افتراضيًا — الإدارة هي اللي تكتب المنطقة والمحافظة
 }
 function zzSetAreas(list) { zzSafeSetItem(ZZ_AREAS_KEY, JSON.stringify(list)); }
 
 function zzGetStationRegistry() {
   try { const a = JSON.parse(localStorage.getItem(ZZ_STATIONS_KEY)); if (Array.isArray(a)) return a; } catch (e) {}
-  return [{ id: "s1", name: "محطة الإسماعيلية", unit: "وحدة 1", area: "الإسماعيلية" }];
+  return []; // محدش بيتحط افتراضيًا
 }
 function zzSetStationRegistry(list) { zzSafeSetItem(ZZ_STATIONS_KEY, JSON.stringify(list)); }
 
@@ -4134,7 +4289,7 @@ function zzAreaItems() { return zzGetAreas().map((a) => ({ value: a, label: a })
 function zzStationItems() { return zzGetStationRegistry().map((s) => ({ value: s.id, label: s.name + " - " + s.unit + " (" + s.area + ")" })); }
 
 /* ---------- الدخول الموحد ---------- */
-function zzUnifiedLogin() {
+async function zzUnifiedLogin() {
   const id = document.getElementById("lg-id").value.trim().toLowerCase();
   const pass = document.getElementById("lg-pass").value;
   const err = document.getElementById("lg-err");
@@ -4143,10 +4298,17 @@ function zzUnifiedLogin() {
   if (!id || !pass) return fail("اكتب اسم المستخدم (أو رقم الموبايل) والباسورد");
 
   // الأدمن الرئيسي
-  if (id === "admin" && pass === zzGetPins().admin) { done(); selectRole("admin", false); return; }
+  const pins = zzGetPins();
+  if (id === "admin" && await zzCheckPass(pass, pins.admin, async (h) => { const p = zzGetPins(); p.admin = h; zzSetPins(p); })) {
+    done(); selectRole("admin", false); return;
+  }
 
   // الموظفين (فني / مُشغّل / مشرف)
-  const m = adminGetTeam().find((x) => x.username === id && x.password === pass && ZZ_DEPT_TO_ROLE[x.role]);
+  const team = adminGetTeam();
+  let m = null;
+  for (const x of team) {
+    if (x.username === id && ZZ_DEPT_TO_ROLE[x.role] && await zzCheckPass(pass, x.password, async (h) => { x.password = h; adminSetTeam(team); })) { m = x; break; }
+  }
   if (m) {
     const key = ZZ_DEPT_TO_ROLE[m.role];
     if (key !== "home_technician") {
@@ -4165,7 +4327,10 @@ function zzUnifiedLogin() {
   // العملاء
   let regs = [];
   try { regs = JSON.parse(localStorage.getItem("zamzam_pending_registrations")) || []; } catch (e) {}
-  const r = regs.find((x) => x.phone === id && x.password === pass);
+  let r = null;
+  for (const x of regs) {
+    if (x.phone === id && await zzCheckPass(pass, x.password, async (h) => { x.password = h; localStorage.setItem("zamzam_pending_registrations", JSON.stringify(regs)); })) { r = x; break; }
+  }
   if (r) {
     if (r.status !== "مُعتمد ✅") return fail(r.status === "قيد المراجعة" ? "طلبك لسه قيد المراجعة من الإدارة" : "تم رفض هذا الطلب، تواصل مع الإدارة");
     ROLES[r.type].name = r.name;
@@ -4194,7 +4359,8 @@ function adminOpenAreasStations() {
       <p style="font-weight:700; color:var(--brand-blue); margin:0 0 8px;">🗺️ مناطق الصيانة</p>
       ${areas.map((a, i) => `<div class="row"><span class="k">${zzEscape(a)}</span><button class="btn btn-outline" style="width:auto; padding:4px 10px; font-size:11px;" onclick="adminRemoveArea(${i})">حذف</button></div>`).join("") || '<p style="font-size:12px;color:var(--text-muted);">لا توجد مناطق</p>'}
       <div style="display:flex; gap:8px; margin-top:10px;">
-        <input id="new-area" type="text" placeholder="اسم منطقة جديدة" style="flex:1;">
+        <input id="new-gov" type="text" placeholder="المحافظة" style="flex:1;">
+        <input id="new-area" type="text" placeholder="المنطقة" style="flex:1;">
         <button class="btn btn-accent" style="width:auto; padding:8px 14px;" onclick="adminAddArea()">إضافة</button>
       </div>
     </div>
@@ -4220,10 +4386,12 @@ function adminOpenAreasStations() {
   `, "areas_stations");
 }
 function adminAddArea() {
-  const v = document.getElementById("new-area").value.trim();
-  if (!v) return zzToast("اكتب اسم المنطقة", "danger");
+  const gov = document.getElementById("new-gov").value.trim();
+  const area = document.getElementById("new-area").value.trim();
+  if (!gov || !area) return zzToast("اكتب المحافظة والمنطقة", "danger");
+  const v = area + " — محافظة " + gov;
   const a = zzGetAreas();
-  if (a.includes(v)) return zzToast("المنطقة موجودة بالفعل", "danger");
+  if (a.includes(v)) return zzToast("المنطقة دي موجودة بالفعل", "danger");
   a.push(v); zzSetAreas(a); adminOpenAreasStations();
 }
 function adminRemoveArea(i) { const a = zzGetAreas(); a.splice(i, 1); zzSetAreas(a); adminOpenAreasStations(); }
@@ -4623,6 +4791,103 @@ function zzOpenSystemForm() {
   }
   showSplashStep("sysform");
 }
+
+</script>
+<script>
+/* =========================================================
+   زمزم — مشاركة الموقع عن بُعد
+   GPS لازم يتسجّل من نفس الجهاز اللي بيدّي الإذن، يعني مينفعش
+   الأدمن أو الفني يحددوا موقع العميل من عندهم. الحل: لينك مستقل
+   (index.html?locate=1) يفتحه العميل بنفسه من موبايله، يحدد
+   موقعه ويبعت رقم موبايله، ونربطها تلقائيًا بطلب الصيانة بتاعه.
+   ========================================================= */
+
+const ZZ_GPS_SUBMISSIONS_KEY = "zamzam_gps_submissions";
+let zzLocateCoords = null;
+
+function zzGetGpsSubmissions() {
+  try { return JSON.parse(localStorage.getItem(ZZ_GPS_SUBMISSIONS_KEY)) || []; } catch (e) { return []; }
+}
+function zzSetGpsSubmissions(list) { zzSafeSetItem(ZZ_GPS_SUBMISSIONS_KEY, JSON.stringify(list)); }
+
+function zzLocateCaptureGps() {
+  const msg = document.getElementById("zz-locate-msg");
+  if (!navigator.geolocation) { msg.textContent = "المتصفح ده مش بيدعم تحديد الموقع"; return; }
+  msg.textContent = "بيتم تحديد موقعك...";
+  navigator.geolocation.getCurrentPosition(
+    (pos) => {
+      zzLocateCoords = pos.coords.latitude.toFixed(6) + ", " + pos.coords.longitude.toFixed(6);
+      msg.textContent = "تم تحديد الموقع ✅ — دلوقتي اكتب رقم موبايلك واضغط إرسال";
+      msg.style.color = "var(--brand-green)";
+    },
+    () => { msg.textContent = "تعذّر تحديد الموقع، تأكد من السماح بالوصول للموقع من إعدادات المتصفح"; msg.style.color = "var(--danger-text)"; }
+  );
+}
+
+function zzLocateSubmit() {
+  const msg = document.getElementById("zz-locate-msg");
+  const phone = document.getElementById("zz-locate-phone").value.trim();
+  if (!zzLocateCoords) { msg.textContent = "حدد موقعك الأول بالضغط على الزرار اللي فوق"; msg.style.color = "var(--danger-text)"; return; }
+  if (!/^01\d{9}$/.test(phone)) { msg.textContent = "اكتب رقم موبايل صحيح (11 رقم يبدأ بـ 01)"; msg.style.color = "var(--danger-text)"; return; }
+
+  const list = zzGetGpsSubmissions().filter((s) => s.phone !== phone);
+  list.unshift({ phone, gps: zzLocateCoords, submittedAt: new Date().toISOString() });
+  zzSetGpsSubmissions(list);
+
+  // لو العميل ده له طلب صيانة قائم، اربط الموقع بيه فورًا
+  try {
+    let reqs = JSON.parse(localStorage.getItem(HC_KEYS.requests)) || [];
+    let touched = false;
+    reqs.forEach((r) => { if (r.phone === phone && !r.gps) { r.gps = zzLocateCoords; touched = true; } });
+    if (touched) hcSet(HC_KEYS.requests, reqs);
+  } catch (e) {}
+
+  document.querySelector("#splash-step-locate .splash-form-card").innerHTML =
+    '<p style="font-size:34px;">✅</p><p style="font-weight:700; color:var(--brand-green-dark);">تم إرسال موقعك بنجاح</p><p style="font-size:13px; color:#555;">تقدر تقفل الصفحة دلوقتي.</p>';
+}
+
+/* رابط المشاركة الجاهز لإرساله للعميل */
+function zzGetLocateLink() {
+  return location.origin + location.pathname + "?locate=1";
+}
+
+async function zzShareLocateLink() {
+  const link = zzGetLocateLink();
+  try {
+    if (navigator.share) { await navigator.share({ title: "تحديد الموقع — زمزم", url: link }); return; }
+  } catch (e) {}
+  try {
+    await navigator.clipboard.writeText(link);
+    zzToast("تم نسخ لينك تحديد الموقع، ابعته للعميل ✅", "ok");
+  } catch (e) {
+    prompt("انسخ اللينك ده وابعته للعميل:", link);
+  }
+}
+
+/* لما نفتح نموذج طلب الصيانة، نشوف لو العميل بعت موقعه قبل كده بنفس رقمه */
+function zzAutofillGpsFromSubmission(phone) {
+  if (!phone) return "";
+  const match = zzGetGpsSubmissions().find((s) => s.phone === phone);
+  return match ? match.gps : "";
+}
+
+</script>
+<script>
+/* ---------- قسم الدليل (تحت الإنشاء) ---------- */
+function adminOpenGuide() {
+  showDetail(`
+    <p class="section-title"><button class="back-btn" onclick="goHome()">→</button> الدليل</p>
+    <div class="card" style="text-align:center; padding:24px;">
+      <p style="font-size:34px; margin:0 0 8px;">🚧</p>
+      <p style="font-weight:700; color:var(--brand-blue); margin:0 0 6px;">قيد الإنشاء</p>
+      <p style="font-size:13px; color:var(--text-muted);">هيتضاف هنا دليل استخدام التطبيق لكل الأدوار قريبًا.</p>
+    </div>
+  `, "guide");
+}
+(function () {
+  if (!SECTION_HANDLERS.admin) SECTION_HANDLERS.admin = {};
+  SECTION_HANDLERS.admin.guide = adminOpenGuide;
+})();
 
 </script>
 </body>
