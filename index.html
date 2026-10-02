@@ -3097,6 +3097,7 @@ function adminOpenFinance() {
 
   showDetail(`
     <p class="section-title"><button class="back-btn" onclick="goHome()">→</button> التقارير المالية</p>
+    <button class="btn btn-outline" style="margin-bottom:12px;" onclick="adminPrintFinanceReport()">🖨️ طباعة التقرير الكامل</button>
     <div class="stat-card" style="background:var(--bg-soft); border-radius:12px; padding:14px; margin-bottom:10px;">
       <div style="font-size:12px; color:var(--text-muted);">إجمالي قيمة الفواتير</div>
       <div style="font-size:20px; font-weight:700; margin-top:4px;">${total.toLocaleString()} جنيه</div>
@@ -3146,8 +3147,44 @@ function adminFinanceInvoiceRows(invoices) {
       <div class="t">فاتورة #${zzEscape(String(i.number))} — ${i.amount.toLocaleString()} جنيه</div>
       <div class="s">👤 العميل: ${zzEscape(i.customer || "غير محدد")} • 🔧 الفني: ${zzEscape(i.technician || "غير محدد")}</div>
       <div class="s">${i.date} • <span class="${i.status === "مدفوعة" ? "status-ok" : "status-alert"}" style="font-weight:600;">${i.status}</span>${i.adminIssued ? " • 🏢 أصدرتها الإدارة" : ""}</div>
+      <button class="btn btn-outline" style="margin-top:6px; width:auto; padding:4px 10px; font-size:11px;" onclick="techPrintInvoice('${i.number}')">🖨️ طباعة الفاتورة دي</button>
     </div>
   `).join("");
+}
+
+/* ---------- طباعة التقرير المالي الكامل ---------- */
+function adminPrintFinanceReport() {
+  const invoices = hcGet(HC_KEYS.invoices);
+  const total = invoices.reduce((s, i) => s + i.amount, 0);
+  const paidAmount = invoices.filter((i) => i.status === "مدفوعة").reduce((s, i) => s + i.amount, 0);
+  const byTech = {};
+  invoices.forEach((i) => {
+    const t = i.technician || "غير محدد";
+    if (!byTech[t]) byTech[t] = { count: 0, total: 0, paid: 0 };
+    byTech[t].count++; byTech[t].total += i.amount;
+    if (i.status === "مدفوعة") byTech[t].paid += i.amount;
+  });
+  const techRows = Object.keys(byTech).map((n) => `<tr><td>${zzEscape(n)}</td><td>${byTech[n].count}</td><td>${byTech[n].total}</td><td>${byTech[n].paid}</td></tr>`).join("");
+  const invRows = invoices.map((i) => `<tr><td>#${zzEscape(String(i.number))}</td><td>${zzEscape(i.customer || "")}</td><td>${zzEscape(i.technician || "")}</td><td>${i.amount}</td><td>${zzEscape(i.status)}</td><td>${i.date}</td></tr>`).join("");
+
+  const w = window.open("", "_blank");
+  w.document.write(`
+    <html dir="rtl"><head><meta charset="utf-8"><title>التقرير المالي</title>
+    <style>
+      @page { size: auto; margin: 12mm; } html, body { height: auto !important; }
+      body{font-family:Tahoma,Arial,sans-serif; padding:24px; margin:0;} h2{color:#0c447c;} h3{color:#0c447c; margin-top:24px;}
+      table{width:100%; border-collapse:collapse; margin-top:10px; font-size:13px;}
+      td,th{padding:6px 8px; border-bottom:1px solid #eee; text-align:right;}
+    </style></head><body>
+    <h2>زمزم لتكنولوجيا المياه والطاقة — التقرير المالي</h2>
+    <p>تاريخ الطباعة: ${new Date().toLocaleDateString("ar-EG")} • إجمالي الفواتير: ${invoices.length} • الإجمالي: ${total} ج • المحصّل: ${paidAmount} ج</p>
+    <h3>التحصيل حسب الفني</h3>
+    <table><tr><th>الفني</th><th>عدد الفواتير</th><th>الإجمالي</th><th>المحصّل</th></tr>${techRows}</table>
+    <h3>كل الفواتير</h3>
+    <table><tr><th>رقم</th><th>العميل</th><th>الفني</th><th>القيمة</th><th>الحالة</th><th>التاريخ</th></tr>${invRows}</table>
+    <script>window.onload=function(){setTimeout(function(){window.focus();window.print();},200);}<\/script>
+    </body></html>`);
+  w.document.close();
 }
 
 /* ---------- شاشة: الإعلانات (إنشاء وإدارة) ---------- */
@@ -3436,18 +3473,37 @@ function adminOpenRegistrations() {
           <button class="btn btn-outline" style="width:auto; padding:8px 14px; font-size:12px; color:var(--danger-text);" onclick="adminReviewReg(${r.id}, false)">رفض</button>
         </div>
       ` : ""}
+      <div style="margin-top:8px; background:var(--bg-soft); border-radius:8px; padding:8px;">
+        <p style="font-size:11px; font-weight:700; margin:0 0 6px;">🔑 نسي الباسورد؟</p>
+        <div style="display:flex; gap:6px;">
+          <input id="reset-pass-${r.id}" type="text" placeholder="باسورد جديد (٤ أحرف على الأقل)" style="flex:1; margin:0;">
+          <button class="btn btn-outline" style="width:auto; padding:6px 10px; font-size:11px;" onclick="adminResetCustomerPassword(${r.id})">تعيين</button>
+        </div>
+      </div>
     </div>
   `).join("");
 
   showDetail(`
     <p class="section-title"><button class="back-btn" onclick="goHome()">→</button> طلبات التسجيل الجديدة</p>
     <p style="font-size:11px; color:var(--text-muted); margin-bottom:12px;">
-      بعد الاعتماد، الشخص يقدر يدخل من "تسجيل الدخول" بحساب "${typeLabel.home_customer}" أو
-      "${typeLabel.donor}" حسب نوعه — ربط كل شخص بحساب مستقل بالكامل هيتفعّل مع ربط قاعدة
-      البيانات الحقيقية في مرحلة الاستضافة (القسم 11).
+      بعد الاعتماد، الشخص يدخل من "تسجيل الدخول" برقم موبايله والباسورد اللي اختاره وقت التسجيل.
+      لو نساه، تقدر تحط له باسورد جديد من كارته هنا.
     </p>
     ${rows || '<p style="font-size:13px; color:var(--text-muted);">لا يوجد طلبات تسجيل جديدة حاليًا</p>'}
   `, "registrations");
+}
+
+async function adminResetCustomerPassword(id) {
+  const input = document.getElementById("reset-pass-" + id);
+  const val = input.value.trim();
+  if (val.length < 4) { zzToast("الباسورد لازم 4 أحرف على الأقل", "danger"); return; }
+  const list = adminGetPendingRegs();
+  const idx = list.findIndex((r) => r.id === id);
+  if (idx === -1) return;
+  list[idx].password = await zzHash(val);
+  adminSetPendingRegs(list);
+  zzToast("تم تعيين باسورد جديد للعميل ✅", "ok");
+  adminOpenRegistrations();
 }
 
 function adminReviewReg(id, approve) {
@@ -3774,6 +3830,8 @@ function adminOpenNewSectionForm() {
   `, "new_section");
 }
 
+let zzPendingSection = null;
+
 function adminCreateCustomSection() {
   const label = document.getElementById("ns-label").value.trim();
   const icon = document.getElementById("ns-icon").value.trim() || "📄";
@@ -3812,19 +3870,60 @@ function adminCreateCustomSection() {
           return obj;
         });
 
-      const key = "custom_" + Date.now();
-      const section = { key, label, icon, columns, rows: dataRows };
-      zzSaveCustomSection(section);
-      zzRegisterCustomSections();
-
-      zzToast(`تم إنشاء قسم "${label}" ✅ (${dataRows.length} سجل)`, "ok");
-      goHome();
+      zzPendingSection = { label, icon, columns, rows: dataRows };
+      adminPreviewCustomSection();
     } catch (err) {
       console.error(err);
       zzToast("تعذّرت قراءة الملف — تأكد إنه ملف إكسل/CSV سليم", "danger");
     }
   };
   reader.readAsArrayBuffer(file);
+}
+
+/* ---------- شاشة معاينة قبل التأكيد — تتأكد من شكل الأعمدة قبل الحفظ ---------- */
+function adminPreviewCustomSection() {
+  const s = zzPendingSection;
+  if (!s) return goHome();
+
+  const warn = s.columns.length === 1
+    ? `<div class="card" style="background:var(--warning-bg); margin-bottom:12px;">
+         <p style="font-size:12px; color:var(--warning-text); margin:0;">
+           ⚠️ الملف طلع عمود واحد بس. لو كنت قاصد كذا عمود (اسم، هاتف، عنوان...)، يبقى
+           ملفك لازم يكون فيه <b>صف عناوين</b> منفصل فوق البيانات، كل عنوان في خانة لوحده.
+           راجع الملف وارفعه تاني لو ده مش قصدك.
+         </p>
+       </div>` : "";
+
+  const head = s.columns.map((c) => `<th>${zzEscape(c)}</th>`).join("");
+  const preview = s.rows.slice(0, 5).map((row) => `
+    <tr>${s.columns.map((c) => `<td>${zzEscape(row[c] || "")}</td>`).join("")}</tr>
+  `).join("");
+
+  showDetail(`
+    <p class="section-title"><button class="back-btn" onclick="adminOpenNewSectionForm()">→</button> معاينة قبل الإنشاء</p>
+    ${warn}
+    <p style="font-size:13px; margin:0 0 8px;">هيتعمل قسم اسمه <b>"${zzEscape(s.label)}"</b> بـ <b>${s.columns.length}</b> عمود و<b>${s.rows.length}</b> سجل.</p>
+    <div style="overflow-x:auto; margin-bottom:14px;">
+      <table style="width:100%; border-collapse:collapse; font-size:12px;">
+        <thead><tr style="background:var(--bg-soft);">${head}</tr></thead>
+        <tbody>${preview}</tbody>
+      </table>
+    </div>
+    ${s.rows.length > 5 ? `<p style="font-size:11px; color:var(--text-muted); margin:0 0 14px;">+ ${s.rows.length - 5} سجل تاني مش ظاهرين هنا</p>` : ""}
+    <button class="btn btn-primary" onclick="adminConfirmCustomSection()">✅ الشكل ده صح، إنشاء القسم</button>
+    <button class="btn btn-outline" style="margin-top:10px;" onclick="adminOpenNewSectionForm()">↩️ إلغاء واختيار ملف تاني</button>
+  `, "new_section");
+}
+
+function adminConfirmCustomSection() {
+  const s = zzPendingSection;
+  if (!s) return goHome();
+  const key = "custom_" + Date.now();
+  zzSaveCustomSection({ key, label: s.label, icon: s.icon, columns: s.columns, rows: s.rows });
+  zzRegisterCustomSections();
+  zzToast(`تم إنشاء قسم "${s.label}" ✅ (${s.rows.length} سجل)`, "ok");
+  zzPendingSection = null;
+  goHome();
 }
 
 /* ---------- شاشة: عرض بيانات قسم مخصّص (جدول + إضافة/تعديل/حذف) ---------- */
