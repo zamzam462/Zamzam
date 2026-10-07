@@ -149,20 +149,27 @@ html, body {
 }
 
 /* ---------- كروت الخدمات (شكل الصورة المرجعية) ---------- */
-.grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
 .action-card {
-  background: #fff; border: 1px solid #eee; border-radius: 14px; padding: 20px 10px;
-  display: flex; flex-direction: column; align-items: center; gap: 8px; cursor: pointer;
-  font-family: inherit; box-shadow: 0 1px 5px rgba(0,0,0,0.05);
+  background: #fff; border: 1px solid #f0f0f0; border-radius: 16px; padding: 14px 6px 12px;
+  display: flex; flex-direction: column; align-items: center; justify-content: flex-start; gap: 7px; cursor: pointer;
+  font-family: inherit; box-shadow: 0 2px 6px rgba(12,68,124,0.06);
+  transition: transform 0.08s ease, box-shadow 0.08s ease;
+  min-height: 92px;
 }
+.action-card:active { transform: scale(0.95); box-shadow: 0 1px 3px rgba(12,68,124,0.08); }
 .action-card .ic-circle {
-  width: 44px; height: 44px; border-radius: 50%; background: #1f6fd1; color: #fff;
-  display: flex; align-items: center; justify-content: center; font-size: 19px;
-  box-shadow: 0 3px 8px rgba(31,111,209,0.35);
+  width: 38px; height: 38px; border-radius: 50%; background: linear-gradient(145deg, #2a7ae0, #1f6fd1); color: #fff;
+  display: flex; align-items: center; justify-content: center; font-size: 16px; flex-shrink: 0;
+  box-shadow: 0 3px 7px rgba(31,111,209,0.3);
 }
-.action-card.green .ic-circle { background: var(--brand-green); box-shadow: 0 3px 8px rgba(81,165,51,0.35); }
-.action-card .lbl { font-size: 13px; font-weight: 700; color: var(--text-main); }
-.action-card .tag-soon { font-size: 10px; color: var(--text-muted); }
+.action-card.green .ic-circle { background: linear-gradient(145deg, #5fb83a, var(--brand-green)); box-shadow: 0 3px 7px rgba(81,165,51,0.3); }
+.action-card .lbl { font-size: 11.5px; font-weight: 700; color: var(--text-main); line-height: 1.3; text-align: center; }
+.action-card .tag-soon { font-size: 9px; color: var(--text-muted); }
+
+@media (min-width: 420px) {
+  .grid { grid-template-columns: repeat(4, 1fr); }
+}
 
 /* ---------- نافبار سفلي ---------- */
 .nav-bar { display: flex; border-top: 1px solid #eee; flex-shrink: 0; background: #fff; }
@@ -541,10 +548,10 @@ input, select, textarea {
             <path d="M0,28 C130,44 300,6 500,22 L500,46 L0,46 Z" fill="#3f8fd6" opacity="0.55"></path>
             <path d="M0,34 C150,20 320,44 500,30 L500,46 L0,46 Z" fill="#0c447c"></path>
           </svg>
-        </div>
-        <div class="home-body">
-          <div class="greet" id="home-greet"></div>
-          <div class="sub" id="home-sub"></div>
+          <div class="home-body">
+            <div class="greet" id="home-greet"></div>
+            <div class="sub" id="home-sub"></div>
+          </div>
         </div>
         <div class="home-lower">
           <div class="home-ads" id="home-ads"></div>
@@ -4467,6 +4474,7 @@ function zzFinishCustomerLogin(r, fail) {
   if (r.status !== "مُعتمد ✅") return fail(r.status === "قيد المراجعة" ? "طلبك لسه قيد المراجعة من الإدارة" : "تم رفض هذا الطلب، تواصل مع الإدارة");
   ROLES[r.type].name = r.name;
   zzSaveSession(r.type, r.name);
+  localStorage.setItem("zz_my_phone", r.phone || "");
   if (r.type === "home_customer") {
     let p = {};
     try { p = JSON.parse(localStorage.getItem(HC_KEYS.profile)) || {}; } catch (e) {}
@@ -5192,6 +5200,220 @@ function zzRunGlobalSearch() {
   }
   if (!SECTION_HANDLERS.admin) SECTION_HANDLERS.admin = {};
   SECTION_HANDLERS.admin.global_search = adminOpenGlobalSearch;
+})();
+
+</script>
+<script>
+/* =========================================================
+   زمزم — المراسلة
+   شات فريق العمل: مكان واحد مشترك بين الأدمن والفني والمُشغّل والمشرف.
+   شات العملاء: كل عميل له محادثة خاصة بينه وبين فريق الدعم/الإدارة.
+   ========================================================= */
+
+const ZZ_STAFF_CHAT_KEY = "zamzam_staff_chat";
+const ZZ_CUSTOMER_CHAT_KEY = "zamzam_customer_chat";
+
+function zzGetStaffChat() { try { return JSON.parse(localStorage.getItem(ZZ_STAFF_CHAT_KEY)) || []; } catch (e) { return []; } }
+function zzSetStaffChat(list) { zzSafeSetItem(ZZ_STAFF_CHAT_KEY, JSON.stringify(list)); }
+function zzGetCustomerChat() { try { return JSON.parse(localStorage.getItem(ZZ_CUSTOMER_CHAT_KEY)) || []; } catch (e) { return []; } }
+function zzSetCustomerChat(list) { zzSafeSetItem(ZZ_CUSTOMER_CHAT_KEY, JSON.stringify(list)); }
+
+const ZZ_ROLE_CHAT_LABEL = {
+  admin: "الإدارة", home_technician: "فني", operator: "مُشغّل", supervisor: "مشرف",
+};
+
+function zzChatTime(iso) {
+  try { return new Date(iso).toLocaleTimeString("ar-EG", { hour: "2-digit", minute: "2-digit" }); } catch (e) { return ""; }
+}
+
+function zzChatBubbles(list, meCheck) {
+  if (!list.length) return '<p style="text-align:center; font-size:12px; color:var(--text-muted); margin-top:20px;">ابدأ المحادثة...</p>';
+  return list.map((m) => {
+    const mine = meCheck(m);
+    return `
+      <div style="display:flex; ${mine ? "justify-content:left;" : "justify-content:right;"} margin-bottom:8px;">
+        <div style="max-width:78%; background:${mine ? "var(--brand-blue)" : "#eef2f6"}; color:${mine ? "#fff" : "#222"}; border-radius:12px; padding:8px 12px;">
+          ${!mine ? `<div style="font-size:11px; font-weight:700; opacity:0.75; margin-bottom:2px;">${zzEscape(m.name)}</div>` : ""}
+          <div style="font-size:13px; white-space:pre-wrap;">${zzEscape(m.text)}</div>
+          <div style="font-size:10px; opacity:0.7; margin-top:3px; text-align:left;">${zzChatTime(m.at)}</div>
+        </div>
+      </div>`;
+  }).join("");
+}
+
+/* ---------- شات فريق العمل ---------- */
+function openStaffChat() {
+  showDetail(`
+    <p class="section-title"><button class="back-btn" onclick="goHome()">→</button> 💬 شات فريق العمل</p>
+    <div id="staff-chat-box" style="height:60vh; min-height:320px; overflow-y:auto; background:#f7f9fb; border-radius:10px; padding:10px; margin-bottom:10px;"></div>
+    <div style="display:flex; gap:8px;">
+      <input id="staff-chat-input" type="text" placeholder="اكتب رسالتك..." style="flex:1; margin:0;" onkeydown="if(event.key==='Enter'){sendStaffChatMessage();}">
+      <button class="btn btn-primary" style="width:auto; padding:10px 18px;" onclick="sendStaffChatMessage()">إرسال</button>
+    </div>
+  `, "chat");
+  renderStaffChatMessages();
+  zzStartChatPolling("staff-chat-box", renderStaffChatMessages);
+}
+
+function renderStaffChatMessages() {
+  const box = document.getElementById("staff-chat-box");
+  if (!box) return;
+  const myName = ROLES[currentRole].name;
+  const list = zzGetStaffChat().slice(-200);
+  const nearBottom = box.scrollTop + box.clientHeight >= box.scrollHeight - 40;
+  box.innerHTML = zzChatBubbles(list, (m) => m.name === myName && m.role === currentRole);
+  if (nearBottom || !box.dataset.rendered) box.scrollTop = box.scrollHeight;
+  box.dataset.rendered = "1";
+}
+
+function sendStaffChatMessage() {
+  const input = document.getElementById("staff-chat-input");
+  const text = input.value.trim();
+  if (!text) return;
+  const list = zzGetStaffChat();
+  list.push({ id: "m" + Date.now() + Math.random().toString(36).slice(2, 6), name: ROLES[currentRole].name, role: currentRole, text, at: new Date().toISOString() });
+  zzSetStaffChat(list);
+  input.value = "";
+  renderStaffChatMessages();
+}
+
+/* ---------- شات العميل (خاص بكل عميل لوحده) ---------- */
+function openMyCustomerChat() {
+  const phone = localStorage.getItem("zz_my_phone") || "";
+  showDetail(`
+    <p class="section-title"><button class="back-btn" onclick="goHome()">→</button> 💬 تواصل مع الدعم</p>
+    ${!phone ? '<p style="font-size:12px; color:var(--warning-text);">محتاج تسجّل دخول برقم موبايلك عشان تقدر تبعت رسايل.</p>' : ""}
+    <div id="cust-chat-box" style="height:55vh; min-height:300px; overflow-y:auto; background:#f7f9fb; border-radius:10px; padding:10px; margin-bottom:10px;"></div>
+    <div style="display:flex; gap:8px;">
+      <input id="cust-chat-input" type="text" placeholder="اكتب رسالتك..." style="flex:1; margin:0;" onkeydown="if(event.key==='Enter'){sendCustomerChatMessage();}">
+      <button class="btn btn-primary" style="width:auto; padding:10px 18px;" onclick="sendCustomerChatMessage()">إرسال</button>
+    </div>
+  `, "chat");
+  renderMyCustomerChat();
+  zzStartChatPolling("cust-chat-box", renderMyCustomerChat);
+}
+
+function renderMyCustomerChat() {
+  const box = document.getElementById("cust-chat-box");
+  if (!box) return;
+  const phone = localStorage.getItem("zz_my_phone") || "";
+  const list = zzGetCustomerChat().filter((m) => m.phone === phone);
+  const nearBottom = box.scrollTop + box.clientHeight >= box.scrollHeight - 40;
+  box.innerHTML = zzChatBubbles(list, (m) => m.sender === "customer");
+  if (nearBottom || !box.dataset.rendered) box.scrollTop = box.scrollHeight;
+  box.dataset.rendered = "1";
+}
+
+function sendCustomerChatMessage() {
+  const phone = localStorage.getItem("zz_my_phone") || "";
+  if (!phone) return zzToast("سجّل دخولك الأول عشان تقدر تبعت", "danger");
+  const input = document.getElementById("cust-chat-input");
+  const text = input.value.trim();
+  if (!text) return;
+  const list = zzGetCustomerChat();
+  list.push({ id: "m" + Date.now() + Math.random().toString(36).slice(2, 6), phone, sender: "customer", name: ROLES[currentRole].name, text, at: new Date().toISOString() });
+  zzSetCustomerChat(list);
+  input.value = "";
+  renderMyCustomerChat();
+}
+
+/* ---------- الأدمن: كل محادثات العملاء ---------- */
+function adminOpenCustomerChats() {
+  const list = zzGetCustomerChat();
+  const byPhone = {};
+  list.forEach((m) => {
+    if (!byPhone[m.phone]) byPhone[m.phone] = [];
+    byPhone[m.phone].push(m);
+  });
+  const phones = Object.keys(byPhone).sort((a, b) => new Date(byPhone[b].at(-1).at) - new Date(byPhone[a].at(-1).at));
+
+  if (!phones.length) {
+    showDetail(`
+      <p class="section-title"><button class="back-btn" onclick="goHome()">→</button> 💬 شات العملاء</p>
+      <p style="font-size:13px; color:var(--text-muted);">لسه مفيش أي رسائل من العملاء.</p>
+    `, "chat_customers");
+    return;
+  }
+
+  const rows = phones.map((p) => {
+    const msgs = byPhone[p];
+    const last = msgs[msgs.length - 1];
+    const custName = msgs.find((m) => m.sender === "customer")?.name || p;
+    return `
+      <div class="list-row" style="cursor:pointer;" onclick="adminOpenCustomerChatThread('${p}')">
+        <div class="t">${zzEscape(custName)} — ${zzEscape(p)}</div>
+        <div class="s">${zzEscape((last.text || "").slice(0, 40))} • ${zzChatTime(last.at)}</div>
+      </div>`;
+  }).join("");
+
+  showDetail(`
+    <p class="section-title"><button class="back-btn" onclick="goHome()">→</button> 💬 شات العملاء</p>
+    ${rows}
+  `, "chat_customers");
+}
+
+function adminOpenCustomerChatThread(phone) {
+  showDetail(`
+    <p class="section-title"><button class="back-btn" onclick="adminOpenCustomerChats()">→</button> 💬 ${zzEscape(phone)}</p>
+    <div id="cust-chat-box" style="height:55vh; min-height:300px; overflow-y:auto; background:#f7f9fb; border-radius:10px; padding:10px; margin-bottom:10px;"></div>
+    <div style="display:flex; gap:8px;">
+      <input id="staff-reply-input" type="text" placeholder="اكتب الرد..." style="flex:1; margin:0;" onkeydown="if(event.key==='Enter'){adminSendCustomerReply('${phone}');}">
+      <button class="btn btn-primary" style="width:auto; padding:10px 18px;" onclick="adminSendCustomerReply('${phone}')">إرسال</button>
+    </div>
+  `, "chat_customers");
+  const render = () => {
+    const box = document.getElementById("cust-chat-box");
+    if (!box) return;
+    const list = zzGetCustomerChat().filter((m) => m.phone === phone);
+    const nearBottom = box.scrollTop + box.clientHeight >= box.scrollHeight - 40;
+    box.innerHTML = zzChatBubbles(list, (m) => m.sender === "staff");
+    if (nearBottom || !box.dataset.rendered) box.scrollTop = box.scrollHeight;
+    box.dataset.rendered = "1";
+  };
+  render();
+  zzStartChatPolling("cust-chat-box", render);
+}
+
+function adminSendCustomerReply(phone) {
+  const input = document.getElementById("staff-reply-input");
+  const text = input.value.trim();
+  if (!text) return;
+  const list = zzGetCustomerChat();
+  list.push({ id: "m" + Date.now() + Math.random().toString(36).slice(2, 6), phone, sender: "staff", name: ROLES[currentRole].name, text, at: new Date().toISOString() });
+  zzSetCustomerChat(list);
+  input.value = "";
+  document.getElementById("cust-chat-box").dataset.rendered = "";
+  adminOpenCustomerChatThread(phone);
+}
+
+/* ---------- تحديث تلقائي بسيط طول ما شاشة الشات مفتوحة ---------- */
+function zzStartChatPolling(boxId, renderFn) {
+  const timer = setInterval(() => {
+    if (!document.getElementById(boxId)) { clearInterval(timer); return; }
+    renderFn();
+  }, 4000);
+}
+
+/* ---------- تسجيل أزرار الشات في كل دور مناسب ---------- */
+(function () {
+  const addAction = (roleKey, action, fn) => {
+    const r = ROLES[roleKey];
+    if (!r || !r.actions) return;
+    if (!r.actions.some((a) => a.key === action.key)) r.actions.push(action);
+    if (!SECTION_HANDLERS[roleKey]) SECTION_HANDLERS[roleKey] = {};
+    SECTION_HANDLERS[roleKey][action.key] = fn;
+  };
+  ["admin", "home_technician", "operator", "supervisor"].forEach((roleKey) => {
+    addAction(roleKey, { key: "chat", icon: "💬", label: "شات الفريق" }, openStaffChat);
+  });
+  if (ROLES.admin && ROLES.admin.actions && !ROLES.admin.actions.some((a) => a.key === "chat_customers")) {
+    ROLES.admin.actions.push({ key: "chat_customers", icon: "💬", label: "شات العملاء" });
+  }
+  if (!SECTION_HANDLERS.admin) SECTION_HANDLERS.admin = {};
+  SECTION_HANDLERS.admin.chat_customers = adminOpenCustomerChats;
+  ["home_customer", "donor"].forEach((roleKey) => {
+    addAction(roleKey, { key: "chat", icon: "💬", label: "تواصل مع الدعم" }, openMyCustomerChat);
+  });
 })();
 
 </script>
